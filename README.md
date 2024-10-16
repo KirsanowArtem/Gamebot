@@ -1,5 +1,3 @@
-# Gamebot
-
 import logging
 from datetime import datetime
 import pytz
@@ -21,17 +19,22 @@ admins = ['ArtemKirss']
 next_user_id = 0
 page_size = 40
 
-
+#Получаем время по Киеву
 def get_current_time_kiev():
     kiev_tz = pytz.timezone('Europe/Kiev')
     now = datetime.now(kiev_tz)
     return now.strftime("%H:%M; %d/%m/%Y")
 
-
 # Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     global next_user_id
     username = update.effective_user.username
+    telegram_user_id = update.effective_user.id
+
+    if any(info['telegram_user_id'] == telegram_user_id for info in users.values()):
+        await update.message.reply_text(f"Пользователь {username} уже зарегистрирован.")
+        return
+
     user_id = next_user_id
     next_user_id += 1
 
@@ -40,12 +43,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "join_date": get_current_time_kiev(),
         "coins": 10,
         "items": ["😀"],
-        "user_bot_id":user_id
+        "user_bot_id": user_id,
+        "telegram_user_id": telegram_user_id
     }
 
     await update.message.reply_text(f"Добро пожаловать, {username}! Ты добавлен в систему. Твой ID: {user_id}")
 
-
+#Форматируем инвентарь
 def format_inventory(items):
     item_counts = {}
     for item in items:
@@ -71,7 +75,7 @@ def generate_inventory_buttons(items, page):
     items_on_page = items[start_index:end_index]
 
     keyboard = []
-    for i in range(0, len(items_on_page), 5):  # 5 items per row
+    for i in range(0, len(items_on_page), 5):
         keyboard.append([InlineKeyboardButton(item, callback_data=f'emoji_{item}') for item in items_on_page[i:i + 5]])
 
     total_pages = (len(items) - 1) // page_size + 1
@@ -95,7 +99,7 @@ async def handle_inventory_button_click(update: Update, context: ContextTypes.DE
     await query.answer()
 
     user_id = context.user_data.get('user_id')
-    page = context.user_data.get('page', 0)  # Default page 0 if not found
+    page = context.user_data.get('page', 0)
 
     if user_id is not None and user_id in users:
         user_info = users[user_id]
@@ -104,12 +108,11 @@ async def handle_inventory_button_click(update: Update, context: ContextTypes.DE
     if query.data.startswith('emoji_'):
         selected_emoji = query.data.split('_')[1]
         if user_id in users:
-            # Убираем все перед закрывающей скобкой ")", оставляем только сам эмодзи
             cleaned_emoji = re.sub(r'^\(\d+\)', '', selected_emoji).strip()
             users[user_id]['selected_emoji'] = cleaned_emoji
 
             coins = user_info.get('coins', 0)
-            selected_emoji_display = users[user_id]['selected_emoji']  # Берем только эмодзи
+            selected_emoji_display = users[user_id]['selected_emoji']
 
             inventory_string = format_inventory(user_info['items'])
             formatted_items = inventory_string.split("; ")
@@ -118,22 +121,18 @@ async def handle_inventory_button_click(update: Update, context: ContextTypes.DE
             await query.edit_message_text(
                 text=f"Инвентарь {user_info['username']}\n"
                      f"Количество монет: {coins} 💲\n"
-                     f"Выбранный эмодзи: {selected_emoji_display}",  # Отображаем только выбранный эмодзи
+                     f"Выбранный эмодзи: {selected_emoji_display}",
                 reply_markup=keyboard
             )
         return
 
-    # Обработка кнопок навигации страниц
     if query.data == 'next_page' and page < (len(items) - 1) // page_size:
-        print("<")
         page += 1
     elif query.data == 'prev_page' and page > 0:
-        print(">")
         page -= 1
 
-    context.user_data['page'] = page  # Обновляем текущую страницу в данных пользователя
+    context.user_data['page'] = page
 
-    # Обновляем кнопки для новой страницы
     inventory_string = format_inventory(user_info['items'])
     formatted_items = inventory_string.split("; ")
     keyboard = generate_inventory_buttons(formatted_items, page)
@@ -148,7 +147,7 @@ async def inventory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if user_id is not None:
         user_info = users[user_id]
         context.user_data['user_id'] = user_id
-        context.user_data['page'] = 0  # Начинаем с первой страницы
+        context.user_data['page'] = 0
 
         inventory_string = format_inventory(user_info['items'])
 
@@ -167,7 +166,6 @@ async def inventory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     else:
         await update.message.reply_text("Ты не зарегистрирован. Используй /start для регистрации.")
 
-
 # Обработка сообщений "чч" или "xx"
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text.lower()
@@ -177,122 +175,206 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         if user_id is not None:
             user_info = users[user_id]
-            inventory_string = format_inventory(user_info["items"])  # Получаем строку инвентаря
+            inventory_string = format_inventory(user_info["items"])
             coins = user_info.get('coins', 0)
             selected_emoji = user_info.get('selected_emoji', '😀')
 
-            # Добавляем инвентарь к сообщению
             await update.message.reply_text(
                 text=f"Инвентарь {user_info['username']}\n"
                      f"Количество монет: {coins} 💲\n"
                      f"Выбранный эмодзи: {selected_emoji}\n"
-                     f"Инвентарь: {inventory_string}"  # Выводим инвентарь
+                     f"Инвентарь: {inventory_string}"
             )
         else:
             await update.message.reply_text("Ты не зарегистрирован. Используй /start для регистрации.")
 
     #elif text in ("cc","сс"):
 
-
-
 # Команда /sail
-async def sail(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    username = update.effective_user.username
-    user_id = next((uid for uid, info in users.items() if username == info["username"]), None)
-
-    if user_id is not None:
-        try:
-            args = context.args
-            if len(args) != 3:
-                await update.message.reply_text("Использование: /sail [эмодзи] [количество] [цена за все]")
-                return
-
-            emoji = args[0]
-            quantity = int(args[1])
-            total_price = int(args[2])
-
-            user_info = users[user_id]
-            items = user_info['items']
-
-            # Объединяем все эмодзи в словарь для проверки количества
-            item_counts = {}
-            for item in items:
-                match = re.match(r'(\d+)(.+)', item)
-                if match:
-                    count = int(match.group(1))
-                    item_emoji = match.group(2)
-                    if item_emoji in item_counts:
-                        item_counts[item_emoji] += count
-                    else:
-                        item_counts[item_emoji] = count
-                else:
-                    if item in item_counts:
-                        item_counts[item] += 1
-                    else:
-                        item_counts[item] = 1
-
-            # Проверка, есть ли у пользователя достаточное количество эмодзи
-            if emoji not in item_counts or item_counts[emoji] < quantity:
-                await update.message.reply_text(f"У вас недостаточно {emoji} для продажи.")
-                return
-
-            # Удаление проданных эмодзи из инвентаря
-            new_items = []
-            remaining_quantity = quantity
-            for item in items:
-                match = re.match(r'(\d+)(.+)', item)
-                if match and match.group(2) == emoji:
-                    count = int(match.group(1))
-                    if count > remaining_quantity:
-                        new_items.append(f"{count - remaining_quantity}{emoji}")
-                        remaining_quantity = 0
-                    else:
-                        remaining_quantity -= count
-                elif match or item != emoji:
-                    new_items.append(item)
-
-            user_info['items'] = new_items
-
-            # Добавляем предмет на рынок
-            market.append({
-                'seller': username,
-                'emoji': emoji,
-                'quantity': quantity,
-                'total_price': total_price
-            })
-
-            await update.message.reply_text(f"Вы успешно добавили на рынок {quantity}{emoji} за {total_price} монет.")
-        except ValueError:
-            await update.message.reply_text("Ошибка в количестве или цене. Проверьте формат.")
-    else:
-        await update.message.reply_text("Ты не зарегистрирован. Используй /start для регистрации.")
-
-
-# Команда /market для просмотра рынка
-async def market_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not market:
-        await update.message.reply_text("Рынок пуст.")
+async def sail(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    args = context.args
+    if len(args) < 3:
+        await update.message.reply_text("Неверный формат команды. Используйте /sail {эмодзи} {количество} {цена}.")
         return
 
+    emoji = args[0]
+    try:
+        quantity = int(args[1])
+        price = int(args[2])
+    except ValueError:
+        await update.message.reply_text("Количество и цена должны быть числами.")
+        return
+
+    telegram_user_id = update.effective_user.id
+    username = update.effective_user.username
+
+    user_info = next((info for info in users.values() if info.get('telegram_user_id') == telegram_user_id), None)
+
+    if user_info is None:
+        await update.message.reply_text("Ты не зарегистрирован. Используй /start для регистрации.")
+        return
+
+    items = user_info.get('items', [])
+
+    for i, item in enumerate(items):
+        match = re.match(r'^\((\d+)\)(.+)', item)
+        if match:
+            available_quantity = int(match.group(1))
+            item_emoji = match.group(2).strip()
+        else:
+            available_quantity = items.count(emoji) if item.strip() == emoji else 0
+            item_emoji = item.strip()
+
+        if item_emoji == emoji:
+            if available_quantity >= quantity:
+
+                new_quantity = available_quantity - quantity
+                if new_quantity > 1:
+                    items[i] = f"({new_quantity}){emoji}"
+                elif new_quantity == 1:
+                    items[i] = emoji
+                else:
+                    items.pop(i)
+
+                items = [item for item in items if not (item.strip() == emoji and items.count(item) > 1)]
+                user_info['items'] = items
+
+                market.append({
+                    'seller_id': telegram_user_id,
+                    'seller': username,
+                    'emoji': emoji,
+                    'quantity': quantity,
+                    'price': price,
+                })
+                await update.message.reply_text(f"Вы выставили на продажу {quantity} {emoji} за {price} 💲.")
+                return
+            else:
+                await update.message.reply_text("У тебя недостаточно эмодзи для продажи.")
+                return
+
+    await update.message.reply_text(f"У тебя нет {emoji} в инвентаре.")
+
+# Обновление инвентаря
+def update_inventory_after_sale(user_id, emoji, quantity):
+    if user_id in users:
+        items = users[user_id]['items']
+        for i, item in enumerate(items):
+            match = re.match(r'\((\d+)\)(.+)', item)
+            if match:
+                item_quantity = int(match.group(1))
+                item_emoji = match.group(2).strip()
+
+                if item_emoji == emoji:
+                    new_quantity = item_quantity - quantity
+
+                    if new_quantity > 0:
+                        items[i] = f"({new_quantity}){item_emoji}"
+                    else:
+                        items.pop(i)
+                    break
+
+# Проверка на наличие емодзи
+def has_enough_items(user_id, emoji, quantity):
+    if user_id in users:
+        items = users[user_id]['items']
+        for item in items:
+            match = re.match(r'\((\d+)\)(.+)', item)
+            if match:
+                item_quantity = int(match.group(1))
+                item_emoji = match.group(2).strip()
+
+                if item_emoji == emoji and item_quantity >= quantity:
+                    return True
+    return False
+
+# Команда /market для просмотра рынка
+async def market_view(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
+    total_pages = (len(market) + page_size - 1) // page_size
+
+    if not market:
+        if update.callback_query:
+            await update.callback_query.message.reply_text("Рынок пуст.")
+        else:
+            await update.message.reply_text("Рынок пуст.")
+        return
+
+    page = max(0, min(page, total_pages - 1))
+
     keyboard = []
-    for i in range(0, len(market), 5):
-        keyboard.append([InlineKeyboardButton(f"{item['quantity']}{item['emoji']} - {item['total_price']} монет",
-                                             callback_data=f"market_{i}") for item in market[i:i + 5]])
+    start = page * page_size
+    end = min(start + page_size, len(market))
 
-    await update.message.reply_text("Рынок:", reply_markup=InlineKeyboardMarkup(keyboard))
+    for i in range(start, end):
+        item = market[i]
+        if i % 5 == 0:
+            keyboard.append([])
+        keyboard[-1].append(InlineKeyboardButton(
+            f"{item['quantity']}{item['emoji']} - {item['price']}💲",
+            callback_data=f"market_{i}"))
 
+    navigation_buttons = []
+
+    if page > 0:
+        navigation_buttons.append(InlineKeyboardButton("⏪", callback_data="previous_market_page"))
+    else:
+        navigation_buttons.append(InlineKeyboardButton("❌", callback_data="no_action"))
+
+    navigation_buttons.append(InlineKeyboardButton(f"{page + 1}/{total_pages}", callback_data="current_page"))
+
+    if page < total_pages - 1:
+        navigation_buttons.append(InlineKeyboardButton("⏩", callback_data="next_market_page"))
+    else:
+        navigation_buttons.append(InlineKeyboardButton("❌", callback_data="no_action"))
+
+    keyboard.append(navigation_buttons)
+
+    if update.callback_query:
+        await update.callback_query.message.edit_text("Рынок:", reply_markup=InlineKeyboardMarkup(keyboard))
+    else:
+        await update.message.reply_text("Рынок:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+# Навигация в рынке
+async def handle_market_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    current_page = context.user_data.get('market_page', 0)
+
+    if query.data == "previous_market_page":
+        current_page -= 1
+    elif query.data == "next_market_page":
+        current_page += 1
+
+    context.user_data['market_page'] = current_page
+
+    await market_view(update, context, page=current_page)
+    await query.answer()
+
+# Кнопки в рынке
+async def handle_market_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data
+
+    if data.startswith('market_'):
+        await handle_market_click(update, context)
+    elif data in ["next_market_page", "prev_market_page"]:
+        await handle_market_navigation(update, context)
+    else:
+        await update.message.reply_text("Неизвестное действие.")
 
 # Обработка нажатия кнопки на рынке
 async def handle_market_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()  # Это обязательное действие для Telegram API.
-
-    print("Вход в handle_market_click")  # Для проверки работы функции
+    await query.answer()
 
     index = int(query.data.split('_')[1])
+
+    if index < 0 or index >= len(market):
+        item = market[index] if index < len(market) else {"emoji": "неизвестен", "price": "неизвестна"}
+        await query.edit_message_text(f"Товар {item['emoji']} по цене {item['price']}💲 не найден.")
+        await handle_market_navigation(update, context)
+        return
+
     item = market[index]
 
-    # Проверка нажатия на кнопку для покупки
     buyer_username = update.effective_user.username
     buyer_id = next((uid for uid, info in users.items() if buyer_username == info["username"]), None)
 
@@ -300,52 +382,36 @@ async def handle_market_click(update: Update, context: ContextTypes.DEFAULT_TYPE
         buyer_info = users[buyer_id]
         seller_info = next(info for uid, info in users.items() if info["username"] == item['seller'])
 
-        # Отладочный вывод для проверки seller_info
-        print(f"Информация о продавце: {seller_info}")  # Вывод информации о продавце
+        if buyer_info['coins'] < item['price']:
+            await update.effective_user.send_message("Недостаточно средств для покупки.")
+            return
 
-        # Проверка наличия монет у покупателя
-        if buyer_info['coins'] < item['total_price']:
-            await query.edit_message_text("Недостаточно средств для покупки.")
-            return  # Возвращаемся, не удаляя товар
+        buyer_info['coins'] -= item['price']
+        seller_info['coins'] += item['price']
 
-        # Списываем монеты с покупателя и добавляем их продавцу
-        buyer_info['coins'] -= item['total_price']
-        seller_info['coins'] += item['total_price']
-
-        # Вывод информации в консоль
-        print(f"Покупатель: {buyer_info['username']} (ID: {buyer_id})")
-        print(f"Продавец: {seller_info['username']} (ID: {seller_info.get('user_id', 'нет user_id')})")  # Используем get для избежания KeyError
-        print(f"Количество монет покупателя: {buyer_info['coins']} монет")
-        print(f"Купленный эмодзи: {item['emoji']} (Количество: {item['quantity']})")
-        print(f"Цена: {item['total_price']} монет")
-
-        # Удаляем товар из рынка
         market.pop(index)
 
-        # Добавляем эмодзи в инвентарь покупателя
-        buyer_info['items'].append(f"{item['quantity']}{item['emoji']}")
+        emoji_entry = f"({item['quantity']}){item['emoji']}"
 
-        await query.edit_message_text(f"Вы купили {item['quantity']}{item['emoji']} за {item['total_price']} монет.")
+        existing_item = next((i for i in buyer_info['items'] if i.endswith(item['emoji'])), None)
+
+        if existing_item:
+            current_quantity = int(existing_item.split(')')[0][1:])
+            new_quantity = current_quantity + item['quantity']
+            buyer_info['items'].remove(existing_item)
+            buyer_info['items'].append(f"({new_quantity}){item['emoji']}")
+        else:
+            buyer_info['items'].append(emoji_entry)
+
+        message_text = (
+            f"Вы успешно купили {item['quantity']} {item['emoji']} "
+            f"за {item['price']}💲 у пользователя {seller_info['username']}."
+        )
+        await update.effective_user.send_message(message_text)
+
+        await handle_market_navigation(update, context)
     else:
         await query.edit_message_text("Ты не зарегистрирован. Используй /start для регистрации.")
-
-
-# Обработка нажатий на кнопки
-async def handle_market_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    data = query.data
-
-    print(f"Вход в handle_market_buttons с данными: {data}")  # Для проверки работы функции
-
-    # Проверка, к какому действию относится нажатие кнопки
-    if data.startswith('market_'):
-        await handle_market_click(update, context)  # Для обработки кликов на рынке
-    elif data.startswith('emoji_'):
-        print("Переход к инвентарю")  # Добавлено для отладки
-        await generate_inventory_buttons(update, context)  # Вызов функции для отображения инвентаря
-    else:
-        await update.message.reply_text("Неизвестное действие.")
-
 
 # Функция для добавления смайликов в инвентарь
 async def add_emoji(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -383,7 +449,6 @@ async def add_emoji(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     else:
         await update.message.reply_text("Ты не зарегистрирован. Используй /start для регистрации.")
 
-
 # Команда /get
 async def get_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     file_path = 'users_info.txt'
@@ -391,17 +456,24 @@ async def get_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         for user_id, info in users.items():
             file.write(
                 f"ID: {user_id}, Имя пользователя: {info['username']}, Дата захода: {info['join_date']}, "
-                f"Баланс: {info['coins']} 💲, Инвентарь: {format_inventory(info['items'])}\n")
+                f"Баланс: {info['coins']} 💲, Инвентарь: {format_inventory(info['items'])}, "
+                f"Telegram ID: {update.effective_user.id}\n"
+            )
+
+        file.write("\nРынок:\n")
+        for index, item in enumerate(market):
+            file.write(
+                f"{index}: Эмодзи: {item['emoji']}, Количество: {item['quantity']}, "
+                f"Цена: {item['price']}, Продавец: {item['seller']}\n"
+            )
 
     with open(file_path, 'rb') as file:
-        await update.message.reply_document(file, caption=f"Информация о пользователях в файле {file_path}")
+        await update.message.reply_document(file, caption=f"Информация о пользователях и рынке в файле {file_path}")
 
-
-# Ожидание файла для команды /set
+# Команда /set
 async def set_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data['awaiting_file'] = True
     await update.message.reply_text("Пожалуйста, отправь файл с информацией о пользователях.")
-
 
 # Обработка полученного файла
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -411,43 +483,80 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await file.download_to_drive(file_path)
 
         with open(file_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                parts = line.strip().split(', ')
+            lines = f.readlines()
+
+        users.clear()
+        market.clear()
+        in_market_section = False
+
+        for line in lines:
+            line = line.strip()
+
+            if line.startswith("ID:"):
+                parts = line.split(', ')
                 user_id = int(parts[0].split(': ')[1])
                 username = parts[1].split(': ')[1]
                 join_date = parts[2].split(': ')[1]
                 coins = int(parts[3].split(': ')[1].replace(' 💲', ''))
                 items = parts[4].split(': ')[1].split('; ')
+                telegram_id = int(parts[5].split(': ')[1])
 
                 users[user_id] = {
                     "username": username,
                     "join_date": join_date,
                     "coins": coins,
-                    "items": items
+                    "items": items,
+                    "telegram_id": telegram_id
                 }
+
+            elif line.startswith("Рынок:"):
+                in_market_section = True
+
+            elif in_market_section and line:
+                try:
+                    index, details = line.split(': ', 1)
+                    details_parts = details.split(', ')
+
+                    emoji = details_parts[0].split(': ')[1]
+                    quantity = int(details_parts[1].split(': ')[1])
+                    price = int(details_parts[2].split(': ')[1])
+                    seller = details_parts[3].split(': ')[1]
+
+                    market.append({
+                        "emoji": emoji,
+                        "quantity": quantity,
+                        "price": price,
+                        "seller": seller
+                    })
+                except ValueError as e:
+                    print(f"Ошибка обработки строки рынка: {line} - {e}")
+
+            elif not line:
+                in_market_section = False
 
         await update.message.reply_text(f"Информация из файла {file_path} загружена.")
         context.user_data['awaiting_file'] = False
 
-
+#Обработка ввода
 def main():
     application = ApplicationBuilder().token("7385251830:AAH8zfW8fxJVdlM1ipU-zdGnRfk5z86L6ec").build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("inventory", inventory))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))  # Добавляем команду /cc
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(CommandHandler("m", add_emoji))
     application.add_handler(CommandHandler("get", get_users))
     application.add_handler(CommandHandler("set", set_users))
-    application.add_handler(CommandHandler("market", market_view))  # Обработчик для команды /market
-    application.add_handler(CommandHandler("sail", sail))  # Обработчик для команды /sail
-    application.add_handler(MessageHandler(filters.Document.ALL, handle_document))  # Добавлен обработчик документов
-    application.add_handler(CallbackQueryHandler(handle_market_buttons, pattern=r'market_.*'))
-    application.add_handler(CallbackQueryHandler(handle_inventory_button_click, pattern=r'emoji_.*'))
+    application.add_handler(CommandHandler("market", market_view))
+    application.add_handler(CommandHandler("sail", sail))
+    application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+    application.add_handler(CallbackQueryHandler(handle_market_navigation, pattern=r'(previous_market_page|next_market_page)'))
+    application.add_handler(CallbackQueryHandler(handle_market_click, pattern=r'market_.*'))
+    application.add_handler(CallbackQueryHandler(handle_inventory_button_click, pattern=r'(emoji_|next_page|prev_page)'))
 
 
     application.run_polling()
 
-
+#Старт
 if __name__ == '__main__':
     main()
